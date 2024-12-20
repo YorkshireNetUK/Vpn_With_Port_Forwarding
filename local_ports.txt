@@ -1,0 +1,3 @@
+# Example local_ports.txt
+TCP=80,443
+UDP=53,1194

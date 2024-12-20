@@ -1,0 +1,3 @@
+# Ports to Clients 
+IP=10.8.0.2 UDP=53 TCP=80,443
+IP=10.8.0.3 UDP=1194 TCP=8080
