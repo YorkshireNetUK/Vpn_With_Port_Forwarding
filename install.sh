@@ -22,8 +22,83 @@ echo "Updating system and installing Git and sudo..."
 apt update && apt install -y git sudo
 
 # Install OpenVPN
-echo "Downloading and running OpenVPN installation script..."
-wget https://raw.githubusercontent.com/YorkshireNetUK/Vpn_With_Port_Forwarding/main/openvpn-install.sh -O openvpn-install.sh && bash openvpn-install.sh
+function install_openvpn {
+  echo "Installing OpenVPN..."
+
+  # Detect OS
+  if grep -qs "ubuntu" /etc/os-release; then
+    os="ubuntu"
+    os_version=$(grep 'VERSION_ID' /etc/os-release | cut -d '"' -f 2 | tr -d '.')
+    group_name="nogroup"
+  elif [[ -e /etc/debian_version ]]; then
+    os="debian"
+    os_version=$(grep -oE '[0-9]+' /etc/debian_version | head -1)
+    group_name="nogroup"
+  else
+    echo "This installer is designed for Debian-based systems like Ubuntu and Debian."
+    exit 1
+  fi
+
+  if [[ "$os" == "ubuntu" && "$os_version" -lt 2204 ]]; then
+    echo "Ubuntu 22.04 or higher is required to use this installer."
+    exit 1
+  fi
+
+  if [[ "$os" == "debian" && "$os_version" -lt 11 ]]; then
+    echo "Debian 11 or higher is required to use this installer."
+    exit 1
+  fi
+
+  # Install OpenVPN and required dependencies
+  apt-get update
+  apt-get install -y openvpn openssl ca-certificates iptables
+
+  # Configure OpenVPN (example configuration for simplicity)
+  mkdir -p /etc/openvpn/server/easy-rsa/
+  cd /etc/openvpn/server/
+
+  # Example: Generate necessary keys and certificates
+  echo "Setting up EasyRSA for PKI management..."
+  wget -qO- https://github.com/OpenVPN/easy-rsa/releases/download/v3.0.8/EasyRSA-3.0.8.tgz | tar xz -C easy-rsa --strip-components 1
+  cd easy-rsa
+  ./easyrsa init-pki
+  ./easyrsa build-ca nopass
+  ./easyrsa gen-req server nopass
+  ./easyrsa sign-req server server
+  cp pki/private/server.key pki/issued/server.crt pki/ca.crt /etc/openvpn/server/
+
+  # Example: Basic server.conf
+  cat <<EOF > /etc/openvpn/server/server.conf
+port 1194
+proto udp
+dev tun
+ca ca.crt
+cert server.crt
+key server.key
+dh none
+topology subnet
+server 10.8.0.0 255.255.255.0
+push "redirect-gateway def1 bypass-dhcp"
+keepalive 10 120
+persist-key
+persist-tun
+status openvpn-status.log
+log-append /var/log/openvpn.log
+verb 3
+EOF
+
+  # Enable IP forwarding
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+
+  # Start and enable OpenVPN service
+  systemctl start openvpn-server@server
+  systemctl enable openvpn-server@server
+
+  echo "OpenVPN installation and setup complete."
+}
+
+install_openvpn
 
 # Clone the repository
 echo "Cloning repository from $REPO_URL..."
