@@ -6,6 +6,8 @@ CLONE_DIR="/tmp/openvpn-setup"
 FIREWALL_SCRIPT="firewall.sh"
 INSTALL_DIR="/opt/openvpn"
 SERVICE_FILE="/etc/systemd/system/openvpn-firewall.service"
+PORTS_FILE="ports.txt"
+LOCAL_PORTS_FILE="local_ports.txt"
 
 # Ensure the script is run as root
 if [ "$EUID" -ne 0 ]; then
@@ -25,9 +27,17 @@ wget https://git.io/vpn -O openvpn-install.sh && bash openvpn-install.sh
 echo "Cloning repository from $REPO_URL..."
 git clone "$REPO_URL" "$CLONE_DIR"
 
-# Check if the repository contains the firewall script
+# Check if the repository contains the required files
 if [ ! -f "$CLONE_DIR/$FIREWALL_SCRIPT" ]; then
   echo "Error: $FIREWALL_SCRIPT not found in the repository."
+  exit 1
+fi
+if [ ! -f "$CLONE_DIR/$PORTS_FILE" ]; then
+  echo "Error: $PORTS_FILE not found in the repository."
+  exit 1
+fi
+if [ ! -f "$CLONE_DIR/$LOCAL_PORTS_FILE" ]; then
+  echo "Error: $LOCAL_PORTS_FILE not found in the repository."
   exit 1
 fi
 
@@ -35,9 +45,11 @@ fi
 echo "Creating installation directory $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
 
-# Move the firewall script to the installation directory
-echo "Moving $FIREWALL_SCRIPT to $INSTALL_DIR..."
+# Move the firewall script and port files to the installation directory
+echo "Moving $FIREWALL_SCRIPT, $PORTS_FILE, and $LOCAL_PORTS_FILE to $INSTALL_DIR..."
 cp "$CLONE_DIR/$FIREWALL_SCRIPT" "$INSTALL_DIR/"
+cp "$CLONE_DIR/$PORTS_FILE" "$INSTALL_DIR/"
+cp "$CLONE_DIR/$LOCAL_PORTS_FILE" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/$FIREWALL_SCRIPT"
 
 # Create the systemd service file
