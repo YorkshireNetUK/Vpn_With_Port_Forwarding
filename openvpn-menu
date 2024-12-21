@@ -17,20 +17,6 @@ get_public_ip() {
   curl -s http://checkip.amazonaws.com || echo "127.0.0.1"
 }
 
-# Find the next available IP for a new client
-get_next_client_ip() {
-  BASE_IP="10.8.0"
-  for i in {2..254}; do
-    IP="$BASE_IP.$i"
-    if ! grep -q "$IP" "$PORTS_FILE"; then
-      echo "$IP"
-      return
-    fi
-  done
-  echo "No available IP addresses left." >&2
-  exit 1
-}
-
 # Install Easy-RSA and initialize PKI
 setup_easy_rsa() {
   echo "Setting up Easy-RSA..."
@@ -40,18 +26,17 @@ setup_easy_rsa() {
   if [ ! -d "pki" ]; then
     ./easyrsa init-pki
     echo -ne '\\n' | ./easyrsa build-ca nopass --batch --req-cn="vpnserver"
-    ./easyrsa gen-dh
-    ./easyrsa gen-crl
-    openvpn --genkey --secret /etc/openvpn/server/ta.key
     ./easyrsa build-server-full vpnserver nopass --batch
+    ./easyrsa gen-dh
+    openvpn --genkey --secret /etc/openvpn/server/ta.key
     echo "Easy-RSA setup complete."
   else
     echo "Easy-RSA already initialized."
   fi
 
   # Copy necessary files to server directory
+  mkdir -p "$OPENVPN_CONFIG_DIR"
   cp pki/ca.crt pki/issued/vpnserver.crt pki/private/vpnserver.key pki/dh.pem /etc/openvpn/server/
-  mkdir -p /etc/openvpn/server/ccd
 }
 
 # Install OpenVPN and set up server configuration
@@ -99,7 +84,7 @@ EOF
 
   # Start and enable OpenVPN service
   systemctl enable openvpn-server@server
-  systemctl start openvpn-server@server
+  systemctl restart openvpn-server@server
 }
 
 # Add a new client configuration
@@ -107,18 +92,6 @@ add_client() {
   read -p "Enter the client name: " CLIENT_NAME
   CLIENT_CONFIG="$OPENVPN_CONFIG_DIR/ccd/$CLIENT_NAME"
   CLIENT_FILE="$CLIENT_FILES_DIR/$CLIENT_NAME.ovpn"
-
-  # Get the next available IP for the client
-  CLIENT_IP=$(get_next_client_ip)
-  echo "ifconfig-push $CLIENT_IP 255.255.255.0" > "$CLIENT_CONFIG"
-  echo "$CLIENT_NAME configuration created with IP $CLIENT_IP."
-
-  echo "Enter forwarding ports for this client."
-  read -p "TCP ports (comma-separated): " TCP_PORTS
-  read -p "UDP ports (comma-separated): " UDP_PORTS
-
-  echo "IP=$CLIENT_IP TCP=$TCP_PORTS UDP=$UDP_PORTS" >> "$PORTS_FILE"
-  echo "Client $CLIENT_NAME added to $PORTS_FILE."
 
   # Get server public IP
   PUBLIC_IP=$(get_public_ip)
@@ -163,43 +136,21 @@ EOF
   echo "$CLIENT_FILE created."
 }
 
-# Remove a client
-remove_client() {
-  read -p "Enter the client name to remove: " CLIENT_NAME
-  CLIENT_CONFIG="$OPENVPN_CONFIG_DIR/ccd/$CLIENT_NAME"
-  CLIENT_FILE="$CLIENT_FILES_DIR/$CLIENT_NAME.ovpn"
-
-  if [[ -f "$CLIENT_CONFIG" ]]; then
-    rm "$CLIENT_CONFIG"
-    sed -i "/$CLIENT_NAME/d" "$PORTS_FILE"
-    echo "Client $CLIENT_NAME removed from $CLIENT_CONFIG."
-  else
-    echo "Client configuration not found."
-  fi
-
-  if [[ -f "$CLIENT_FILE" ]]; then
-    rm "$CLIENT_FILE"
-    echo "Client file $CLIENT_FILE removed."
-  else
-    echo "Client file not found."
-  fi
-}
-
 # Menu
 menu() {
   while true; do
     echo -e "\\n\\033[44m--- OpenVPN Management Menu ---\\033[0m"
-    echo "1) Add a client"
-    echo "2) Remove a client"
+    echo "1) Install OpenVPN"
+    echo "2) Add a client"
     echo "3) Exit"
     read -p "Choose an option: " OPTION
 
     case $OPTION in
       1)
-        add_client
+        install_openvpn
         ;;
       2)
-        remove_client
+        add_client
         ;;
       3)
         exit 0
@@ -212,5 +163,4 @@ menu() {
 }
 
 # Main script execution
-install_openvpn
 menu
