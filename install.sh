@@ -48,6 +48,10 @@ setup_easy_rsa() {
   else
     echo "Easy-RSA already initialized."
   fi
+
+  # Copy necessary files to server directory
+  cp pki/ca.crt pki/issued/vpnserver.crt pki/private/vpnserver.key pki/dh.pem /etc/openvpn/server/
+  mkdir -p /etc/openvpn/server/ccd
 }
 
 # Install OpenVPN and set up server configuration
@@ -63,13 +67,14 @@ install_openvpn() {
 port 1194
 proto udp
 dev tun
+topology subnet
 server 10.8.0.0 255.255.255.0
 push "redirect-gateway def1 bypass-dhcp"
 push "dhcp-option DNS 8.8.8.8"
 push "dhcp-option DNS 8.8.4.4"
 keepalive 10 120
-cipher AES-256-CBC
-auth SHA256
+data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
+data-ciphers-fallback AES-256-CBC
 persist-key
 persist-tun
 user nobody
@@ -180,58 +185,13 @@ remove_client() {
   fi
 }
 
-# Add ports to ports.txt
-edit_ports_txt() {
-  echo "Editing $PORTS_FILE..."
-  read -p "Enter the IP: " IP
-  read -p "TCP ports (comma-separated): " TCP_PORTS
-  read -p "UDP ports (comma-separated): " UDP_PORTS
-
-  echo "IP=$IP TCP=$TCP_PORTS UDP=$UDP_PORTS" >> "$PORTS_FILE"
-  echo "Ports added to $PORTS_FILE."
-}
-
-# Add ports to local_ports.txt
-edit_local_ports_txt() {
-  echo "Editing $LOCAL_PORTS_FILE..."
-  read -p "TCP ports (comma-separated): " TCP_PORTS
-  read -p "UDP ports (comma-separated): " UDP_PORTS
-
-  echo "TCP=$TCP_PORTS UDP=$UDP_PORTS" >> "$LOCAL_PORTS_FILE"
-  echo "Ports added to $LOCAL_PORTS_FILE."
-}
-
-# Display connected clients
-show_connected_clients() {
-  echo "Fetching connected clients..."
-  status_file="/etc/openvpn/openvpn-status.log"
-
-  if [[ -f "$status_file" ]]; then
-    echo -e "\\n--- Connected Clients ---"
-    grep "10.8." "$status_file" | awk '{print "Client IP: " $1 ", Bytes Received: " $3 ", Bytes Sent: " $4}'
-  else
-    echo "Status file not found. Ensure OpenVPN status logging is enabled."
-  fi
-}
-
-# Restart firewall.sh service
-restart_firewall() {
-  echo "Restarting firewall.sh service..."
-  systemctl restart "$FIREWALL_SERVICE"
-  echo "firewall.sh service restarted."
-}
-
 # Menu
 menu() {
   while true; do
     echo -e "\\n\\033[44m--- OpenVPN Management Menu ---\\033[0m"
     echo "1) Add a client"
     echo "2) Remove a client"
-    echo "3) Edit $PORTS_FILE"
-    echo "4) Edit $LOCAL_PORTS_FILE"
-    echo "5) Restart firewall"
-    echo "6) Show connected clients"
-    echo "7) Exit"
+    echo "3) Exit"
     read -p "Choose an option: " OPTION
 
     case $OPTION in
@@ -242,18 +202,6 @@ menu() {
         remove_client
         ;;
       3)
-        edit_ports_txt
-        ;;
-      4)
-        edit_local_ports_txt
-        ;;
-      5)
-        restart_firewall
-        ;;
-      6)
-        show_connected clients
-        ;;
-      7)
         exit 0
         ;;
       *)
