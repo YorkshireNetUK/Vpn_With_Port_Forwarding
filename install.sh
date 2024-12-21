@@ -9,10 +9,44 @@ OPENVPN_CONFIG_DIR="/etc/openvpn/server"
 CLIENT_FILES_DIR="/opt/openvpn/client"
 FIREWALL_SCRIPT="/opt/openvpn/firewall.sh"
 FIREWALL_SERVICE="firewall"
+EASY_RSA_DIR="/etc/openvpn/easy-rsa"
 
 # Get public IP of the server
 get_public_ip() {
   curl -s http://checkip.amazonaws.com || echo "127.0.0.1"
+}
+
+# Find the next available IP for a new client
+get_next_client_ip() {
+  BASE_IP="10.8.0"
+  for i in {2..254}; do
+    IP="$BASE_IP.$i"
+    if ! grep -q "$IP" "$PORTS_FILE"; then
+      echo "$IP"
+      return
+    fi
+  done
+  echo "No available IP addresses left." >&2
+  exit 1
+}
+
+# Install Easy-RSA and initialize PKI
+setup_easy_rsa() {
+  echo "Setting up Easy-RSA..."
+  mkdir -p "$EASY_RSA_DIR"
+  ln -s /usr/share/easy-rsa/* "$EASY_RSA_DIR" 2>/dev/null
+  cd "$EASY_RSA_DIR"
+  if [ ! -d "pki" ]; then
+    ./easyrsa init-pki
+    ./easyrsa build-ca nopass
+    ./easyrsa gen-dh
+    ./easyrsa gen-crl
+    openvpn --genkey --secret /etc/openvpn/server/ta.key
+    ./easyrsa build-server-full server nopass
+    echo "Easy-RSA setup complete."
+  else
+    echo "Easy-RSA already initialized."
+  fi
 }
 
 # Install OpenVPN if not already installed
@@ -60,6 +94,10 @@ EOF
 
   # Create directory for client files
   mkdir -p "$CLIENT_FILES_DIR"
+  mkdir -p "$OPENVPN_CONFIG_DIR/ccd"
+
+  # Set up Easy-RSA
+  setup_easy_rsa
 }
 
 # Add a new client configuration
@@ -68,19 +106,29 @@ add_client() {
   CLIENT_CONFIG="$OPENVPN_CONFIG_DIR/ccd/$CLIENT_NAME"
   CLIENT_FILE="$CLIENT_FILES_DIR/$CLIENT_NAME.ovpn"
 
-  mkdir -p "$OPENVPN_CONFIG_DIR/ccd"
-  echo "ifconfig-push 10.8.0.$((RANDOM % 254 + 2)) 255.255.255.0" > "$CLIENT_CONFIG"
-  echo "$CLIENT_NAME configuration created."
+  # Get the next available IP for the client
+  CLIENT_IP=$(get_next_client_ip)
+  echo "ifconfig-push $CLIENT_IP 255.255.255.0" > "$CLIENT_CONFIG"
+  echo "$CLIENT_NAME configuration created with IP $CLIENT_IP."
 
   echo "Enter forwarding ports for this client."
   read -p "TCP ports (comma-separated): " TCP_PORTS
   read -p "UDP ports (comma-separated): " UDP_PORTS
 
-  echo "IP=10.8.0.$((RANDOM % 254 + 2)) TCP=$TCP_PORTS UDP=$UDP_PORTS" >> "$PORTS_FILE"
+  echo "IP=$CLIENT_IP TCP=$TCP_PORTS UDP=$UDP_PORTS" >> "$PORTS_FILE"
   echo "Client $CLIENT_NAME added to $PORTS_FILE."
 
   # Get server public IP
   PUBLIC_IP=$(get_public_ip)
+
+  # Generate client keys and certificates using Easy-RSA
+  cd "$EASY_RSA_DIR"
+  ./easyrsa build-client-full "$CLIENT_NAME" nopass
+
+  CLIENT_CERT=$(cat "$EASY_RSA_DIR/pki/issued/$CLIENT_NAME.crt")
+  CLIENT_KEY=$(cat "$EASY_RSA_DIR/pki/private/$CLIENT_NAME.key")
+  CA_CERT=$(cat "$EASY_RSA_DIR/pki/ca.crt")
+  TA_KEY=$(cat "$OPENVPN_CONFIG_DIR/ta.key")
 
   # Generate client .ovpn file
   echo "Generating .ovpn file for $CLIENT_NAME..."
@@ -98,24 +146,16 @@ cipher AES-256-CBC
 auth SHA256
 key-direction 1
 <ca>
------BEGIN CERTIFICATE-----
-...CA CONTENT...
------END CERTIFICATE-----
+$CA_CERT
 </ca>
 <cert>
------BEGIN CERTIFICATE-----
-...CLIENT CERTIFICATE CONTENT...
------END CERTIFICATE-----
+$CLIENT_CERT
 </cert>
 <key>
------BEGIN PRIVATE KEY-----
-...CLIENT PRIVATE KEY CONTENT...
------END PRIVATE KEY-----
+$CLIENT_KEY
 </key>
 <tls-auth>
------BEGIN OpenVPN Static key V1-----
-...TLS AUTH CONTENT...
------END OpenVPN Static key V1-----
+$TA_KEY
 </tls-auth>
 EOF
   echo "$CLIENT_FILE created."
@@ -170,7 +210,7 @@ show_connected_clients() {
   status_file="/etc/openvpn/openvpn-status.log"
 
   if [[ -f "$status_file" ]]; then
-    echo -e "\n--- Connected Clients ---"
+    echo -e "\\n--- Connected Clients ---"
     grep "10.8." "$status_file" | awk '{print "Client IP: " $1 ", Bytes Received: " $3 ", Bytes Sent: " $4}'
   else
     echo "Status file not found. Ensure OpenVPN status logging is enabled."
@@ -187,7 +227,7 @@ restart_firewall() {
 # Menu
 menu() {
   while true; do
-    echo -e "\n\033[44m--- OpenVPN Management Menu ---\033[0m"
+    echo -e "\\n\\033[44m--- OpenVPN Management Menu ---\\033[0m"
     echo "1) Add a client"
     echo "2) Remove a client"
     echo "3) Edit $PORTS_FILE"
@@ -214,7 +254,7 @@ menu() {
         restart_firewall
         ;;
       6)
-        show_connected_clients
+        show_connected clients
         ;;
       7)
         exit 0
