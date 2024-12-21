@@ -2,9 +2,7 @@
 
 # Variables
 REPO_URL="https://github.com/YorkshireNetUK/Vpn_With_Port_Forwarding.git"
-MENU_REPO_URL="https://github.com/YorkshireNetUK/vpn-menu.git"
 CLONE_DIR="/tmp/openvpn-setup"
-MENU_CLONE_DIR="/tmp/vpn-menu"
 FIREWALL_SCRIPT="firewall.sh"
 INSTALL_DIR="/opt/openvpn"
 SERVICE_FILE="/etc/systemd/system/openvpn-firewall.service"
@@ -20,14 +18,14 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Update and install required packages
-echo "Updating system and installing Git..."
-apt update && apt install -y git
+echo "Updating system and installing Git and sudo..."
+apt update && apt install -y git sudo
 
 # Install OpenVPN
 echo "Downloading and running OpenVPN installation script..."
-wget https://raw.githubusercontent.com/YorkshireNetUK/Vpn_With_Port_Forwarding/main/openvpn-install.sh  -O openvpn-install.sh && bash openvpn-install.sh
+wget https://raw.githubusercontent.com/YorkshireNetUK/Vpn_With_Port_Forwarding/main/openvpn-install.sh -O openvpn-install.sh && bash openvpn-install.sh
 
-# Clone the main repository
+# Clone the repository
 echo "Cloning repository from $REPO_URL..."
 git clone "$REPO_URL" "$CLONE_DIR"
 
@@ -44,6 +42,10 @@ if [ ! -f "$CLONE_DIR/$LOCAL_PORTS_FILE" ]; then
   echo "Error: $LOCAL_PORTS_FILE not found in the repository."
   exit 1
 fi
+if [ ! -f "$CLONE_DIR/$MENU_SCRIPT" ]; then
+  echo "Error: $MENU_SCRIPT not found in the repository."
+  exit 1
+fi
 
 # Create the installation directory if it doesn't exist
 echo "Creating installation directory $INSTALL_DIR..."
@@ -56,19 +58,9 @@ cp "$CLONE_DIR/$PORTS_FILE" "$INSTALL_DIR/"
 cp "$CLONE_DIR/$LOCAL_PORTS_FILE" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/$FIREWALL_SCRIPT"
 
-# Clone the vpn-menu repository
-echo "Cloning VPN menu repository from $MENU_REPO_URL..."
-git clone "$MENU_REPO_URL" "$MENU_CLONE_DIR"
-
-# Check if the vpn-menu repository contains the menu script
-if [ ! -f "$MENU_CLONE_DIR/$MENU_SCRIPT" ]; then
-  echo "Error: $MENU_SCRIPT not found in the VPN menu repository."
-  exit 1
-fi
-
-# Move the menu script to the bin directory
+# Move the VPN menu script to the bin directory
 echo "Moving $MENU_SCRIPT to $BIN_DIR..."
-cp "$MENU_CLONE_DIR/$MENU_SCRIPT" "$BIN_DIR/"
+cp "$CLONE_DIR/$MENU_SCRIPT" "$BIN_DIR/"
 chmod +x "$BIN_DIR/$MENU_SCRIPT"
 
 # Create the systemd service file
@@ -108,6 +100,5 @@ fi
 # Cleanup
 echo "Cleaning up temporary files..."
 rm -rf "$CLONE_DIR"
-rm -rf "$MENU_CLONE_DIR"
 
 echo "Setup complete."
