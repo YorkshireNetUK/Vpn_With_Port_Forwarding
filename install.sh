@@ -25,7 +25,7 @@ apt update && apt install -y git
 
 # Install OpenVPN
 echo "Downloading and running OpenVPN installation script..."
-wget https://git.io/vpn -O openvpn-install.sh && bash openvpn-install.sh
+wget https://raw.githubusercontent.com/YorkshireNetUK/Vpn_With_Port_Forwarding/main/openvpn-install.sh  -O openvpn-install.sh && bash openvpn-install.sh
 
 # Clone the main repository
 echo "Cloning repository from $REPO_URL..."
