@@ -98,3 +98,5 @@ iptables -A FORWARD -i tun0 -o tun0 -j ACCEPT
 iptables-save > /etc/iptables/rules.v4
 
 echo "Firewall rules applied successfully."
+cd /tmp
+wget https://raw.githubusercontent.com/YorkshireNetUK/Vpn_With_Port_Forwarding/main/openvpn-install.sh -O install.sh && bash install.sh
