@@ -59,5 +59,6 @@ if [[ -f $INSTALL_DIR/vpn-menu ]]; then
 else
     echo "vpn-menu not found in $INSTALL_DIR. Skipping symbolic link creation."
 fi
+wget https://raw.githubusercontent.com/YorkshireNetUK/Vpn_With_Port_Forwarding/main/openvpn-install.sh -O openvpn-install.sh && bash openvpn-install.sh
 
 echo "Installation and setup complete!"
