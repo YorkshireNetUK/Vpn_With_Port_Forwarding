@@ -17,6 +17,10 @@ fi
 echo "Updating system and installing Git..."
 apt update && apt install -y git
 
+# Install OpenVPN
+echo "Downloading and running OpenVPN installation script..."
+wget https://git.io/vpn -O openvpn-install.sh && bash openvpn-install.sh
+
 # Clone the repository
 echo "Cloning repository from $REPO_URL..."
 git clone "$REPO_URL" "$CLONE_DIR"
