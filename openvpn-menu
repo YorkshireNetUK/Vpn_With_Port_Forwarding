@@ -23,11 +23,12 @@ setup_easy_rsa() {
   mkdir -p "$EASY_RSA_DIR"
   ln -s /usr/share/easy-rsa/* "$EASY_RSA_DIR" 2>/dev/null
   cd "$EASY_RSA_DIR"
+
   if [ ! -d "pki" ]; then
     ./easyrsa init-pki
-    echo -ne '\\n' | ./easyrsa build-ca nopass --batch --req-cn="vpnserver"
-    ./easyrsa build-server-full vpnserver nopass --batch
-    ./easyrsa gen-dh
+    ./easyrsa --batch build-ca nopass
+    ./easyrsa --batch gen-dh
+    ./easyrsa --batch build-server-full vpnserver nopass
     openvpn --genkey --secret /etc/openvpn/server/ta.key
     echo "Easy-RSA setup complete."
   else
@@ -36,7 +37,10 @@ setup_easy_rsa() {
 
   # Copy necessary files to server directory
   mkdir -p "$OPENVPN_CONFIG_DIR"
-  cp pki/ca.crt pki/issued/vpnserver.crt pki/private/vpnserver.key pki/dh.pem /etc/openvpn/server/
+  cp "$EASY_RSA_DIR/pki/ca.crt" "$OPENVPN_CONFIG_DIR/"
+  cp "$EASY_RSA_DIR/pki/issued/vpnserver.crt" "$OPENVPN_CONFIG_DIR/"
+  cp "$EASY_RSA_DIR/pki/private/vpnserver.key" "$OPENVPN_CONFIG_DIR/"
+  cp "$EASY_RSA_DIR/pki/dh.pem" "$OPENVPN_CONFIG_DIR/"
 }
 
 # Install OpenVPN and set up server configuration
@@ -93,10 +97,10 @@ add_client() {
   CLIENT_CONFIG="$OPENVPN_CONFIG_DIR/ccd/$CLIENT_NAME"
   CLIENT_FILE="$CLIENT_FILES_DIR/$CLIENT_NAME.ovpn"
 
-  # Get server public IP
+  # Get the server's public IP
   PUBLIC_IP=$(get_public_ip)
 
-  # Generate client keys and certificates using Easy-RSA
+  # Generate client keys and certificates
   cd "$EASY_RSA_DIR"
   ./easyrsa build-client-full "$CLIENT_NAME" nopass --batch
 
@@ -133,7 +137,28 @@ $CLIENT_KEY
 $TA_KEY
 </tls-auth>
 EOF
-  echo "$CLIENT_FILE created."
+  echo "Client configuration file created at: $CLIENT_FILE"
+}
+
+# Remove a client configuration
+remove_client() {
+  read -p "Enter the client name to remove: " CLIENT_NAME
+  CLIENT_CONFIG="$OPENVPN_CONFIG_DIR/ccd/$CLIENT_NAME"
+  CLIENT_FILE="$CLIENT_FILES_DIR/$CLIENT_NAME.ovpn"
+
+  if [[ -f "$CLIENT_CONFIG" ]]; then
+    rm "$CLIENT_CONFIG"
+    echo "Client configuration removed: $CLIENT_CONFIG"
+  else
+    echo "No such client configuration found: $CLIENT_CONFIG"
+  fi
+
+  if [[ -f "$CLIENT_FILE" ]]; then
+    rm "$CLIENT_FILE"
+    echo "Client file removed: $CLIENT_FILE"
+  else
+    echo "No such client file found: $CLIENT_FILE"
+  fi
 }
 
 # Menu
@@ -142,7 +167,8 @@ menu() {
     echo -e "\\n\\033[44m--- OpenVPN Management Menu ---\\033[0m"
     echo "1) Install OpenVPN"
     echo "2) Add a client"
-    echo "3) Exit"
+    echo "3) Remove a client"
+    echo "4) Exit"
     read -p "Choose an option: " OPTION
 
     case $OPTION in
@@ -153,6 +179,9 @@ menu() {
         add_client
         ;;
       3)
+        remove_client
+        ;;
+      4)
         exit 0
         ;;
       *)
