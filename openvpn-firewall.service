@@ -1,0 +1,17 @@
+[Unit]
+Description=Firewall setup for OpenVPN with port forwarding
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/openvpn/firewall.sh
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
+
+# sudo nano /etc/systemd/system/openvpn-firewall.service
+# sudo systemctl daemon-reload
+# sudo systemctl enable openvpn-firewall.service
+# sudo systemctl start openvpn-firewall.service
