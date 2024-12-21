@@ -6,8 +6,14 @@
 PORTS_FILE="/opt/openvpn/ports.txt"
 LOCAL_PORTS_FILE="/opt/openvpn/local_ports.txt"
 OPENVPN_CONFIG_DIR="/etc/openvpn/server"
+CLIENT_FILES_DIR="/opt/openvpn/client"
 FIREWALL_SCRIPT="/opt/openvpn/firewall.sh"
 FIREWALL_SERVICE="firewall"
+
+# Get public IP of the server
+get_public_ip() {
+  curl -s http://checkip.amazonaws.com || echo "127.0.0.1"
+}
 
 # Install OpenVPN if not already installed
 install_openvpn() {
@@ -51,12 +57,16 @@ EOF
   else
     echo "OpenVPN is already installed."
   fi
+
+  # Create directory for client files
+  mkdir -p "$CLIENT_FILES_DIR"
 }
 
 # Add a new client configuration
 add_client() {
   read -p "Enter the client name: " CLIENT_NAME
   CLIENT_CONFIG="$OPENVPN_CONFIG_DIR/ccd/$CLIENT_NAME"
+  CLIENT_FILE="$CLIENT_FILES_DIR/$CLIENT_NAME.ovpn"
 
   mkdir -p "$OPENVPN_CONFIG_DIR/ccd"
   echo "ifconfig-push 10.8.0.$((RANDOM % 254 + 2)) 255.255.255.0" > "$CLIENT_CONFIG"
@@ -68,19 +78,68 @@ add_client() {
 
   echo "IP=10.8.0.$((RANDOM % 254 + 2)) TCP=$TCP_PORTS UDP=$UDP_PORTS" >> "$PORTS_FILE"
   echo "Client $CLIENT_NAME added to $PORTS_FILE."
+
+  # Get server public IP
+  PUBLIC_IP=$(get_public_ip)
+
+  # Generate client .ovpn file
+  echo "Generating .ovpn file for $CLIENT_NAME..."
+  cat <<EOF > "$CLIENT_FILE"
+client
+dev tun
+proto udp
+remote $PUBLIC_IP 1194
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+cipher AES-256-CBC
+auth SHA256
+key-direction 1
+<ca>
+-----BEGIN CERTIFICATE-----
+...CA CONTENT...
+-----END CERTIFICATE-----
+</ca>
+<cert>
+-----BEGIN CERTIFICATE-----
+...CLIENT CERTIFICATE CONTENT...
+-----END CERTIFICATE-----
+</cert>
+<key>
+-----BEGIN PRIVATE KEY-----
+...CLIENT PRIVATE KEY CONTENT...
+-----END PRIVATE KEY-----
+</key>
+<tls-auth>
+-----BEGIN OpenVPN Static key V1-----
+...TLS AUTH CONTENT...
+-----END OpenVPN Static key V1-----
+</tls-auth>
+EOF
+  echo "$CLIENT_FILE created."
 }
 
 # Remove a client
 remove_client() {
   read -p "Enter the client name to remove: " CLIENT_NAME
   CLIENT_CONFIG="$OPENVPN_CONFIG_DIR/ccd/$CLIENT_NAME"
+  CLIENT_FILE="$CLIENT_FILES_DIR/$CLIENT_NAME.ovpn"
 
   if [[ -f "$CLIENT_CONFIG" ]]; then
     rm "$CLIENT_CONFIG"
     sed -i "/$CLIENT_NAME/d" "$PORTS_FILE"
-    echo "Client $CLIENT_NAME removed."
+    echo "Client $CLIENT_NAME removed from $CLIENT_CONFIG."
   else
     echo "Client configuration not found."
+  fi
+
+  if [[ -f "$CLIENT_FILE" ]]; then
+    rm "$CLIENT_FILE"
+    echo "Client file $CLIENT_FILE removed."
+  else
+    echo "Client file not found."
   fi
 }
 
