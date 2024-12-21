@@ -10,6 +10,7 @@ CLIENT_FILES_DIR="/opt/openvpn/client"
 FIREWALL_SCRIPT="/opt/openvpn/firewall.sh"
 FIREWALL_SERVICE="firewall"
 EASY_RSA_DIR="/etc/openvpn/easy-rsa"
+SERVER_CONF="/etc/openvpn/server/server.conf"
 
 # Get public IP of the server
 get_public_ip() {
@@ -49,55 +50,51 @@ setup_easy_rsa() {
   fi
 }
 
-# Install OpenVPN if not already installed
+# Install OpenVPN and set up server configuration
 install_openvpn() {
-  echo "Checking for OpenVPN installation..."
-  if ! command -v openvpn &>/dev/null; then
-    echo "Installing OpenVPN and Git..."
-    apt-get update
-    apt-get install -y openvpn easy-rsa git
-    echo "OpenVPN and Git installed successfully."
+  echo "Installing OpenVPN and dependencies..."
+  apt-get update
+  apt-get install -y openvpn easy-rsa git
 
-    # Clone repository and set up the firewall.sh script and related files
-    echo "Cloning repository and setting up firewall.sh..."
-    mkdir -p /opt/openvpn
-    git clone https://github.com/YorkshireNetUK/Vpn_With_Port_Forwarding.git /opt/openvpn
-    chmod +x "$FIREWALL_SCRIPT"
-
-    # Install openvpn-menu from the repository
-    echo "Setting up openvpn-menu..."
-    cp /opt/openvpn/openvpn-menu /usr/local/bin/openvpn-menu
-    chmod +x /usr/local/bin/openvpn-menu
-
-    # Create systemd service for firewall.sh
-    echo "Creating systemd service for firewall.sh..."
-    cat <<EOF > /etc/systemd/system/$FIREWALL_SERVICE.service
-[Unit]
-Description=Firewall script for OpenVPN
-After=network.target
-
-[Service]
-ExecStart=$FIREWALL_SCRIPT
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
+  # Configure server
+  echo "Configuring OpenVPN server..."
+  mkdir -p "$OPENVPN_CONFIG_DIR"
+  cat <<EOF > "$SERVER_CONF"
+port 1194
+proto udp
+dev tun
+server 10.8.0.0 255.255.255.0
+push "redirect-gateway def1 bypass-dhcp"
+push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4"
+keepalive 10 120
+cipher AES-256-CBC
+auth SHA256
+persist-key
+persist-tun
+user nobody
+group nogroup
+status /var/log/openvpn-status.log
+log-append /var/log/openvpn.log
+verb 3
+ca /etc/openvpn/server/ca.crt
+cert /etc/openvpn/server/server.crt
+key /etc/openvpn/server/server.key
+dh /etc/openvpn/server/dh.pem
+tls-auth /etc/openvpn/server/ta.key 0
+client-config-dir /etc/openvpn/server/ccd
 EOF
 
-    systemctl enable $FIREWALL_SERVICE
-    systemctl start $FIREWALL_SERVICE
-
-    echo "firewall.sh service set up and started."
-  else
-    echo "OpenVPN is already installed."
-  fi
-
-  # Create directory for client files
-  mkdir -p "$CLIENT_FILES_DIR"
-  mkdir -p "$OPENVPN_CONFIG_DIR/ccd"
+  # Enable IP forwarding
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
 
   # Set up Easy-RSA
   setup_easy_rsa
+
+  # Start and enable OpenVPN service
+  systemctl enable openvpn-server@server
+  systemctl start openvpn-server@server
 }
 
 # Add a new client configuration
@@ -161,80 +158,18 @@ EOF
   echo "$CLIENT_FILE created."
 }
 
-# Remove a client
-remove_client() {
-  read -p "Enter the client name to remove: " CLIENT_NAME
-  CLIENT_CONFIG="$OPENVPN_CONFIG_DIR/ccd/$CLIENT_NAME"
-  CLIENT_FILE="$CLIENT_FILES_DIR/$CLIENT_NAME.ovpn"
-
-  if [[ -f "$CLIENT_CONFIG" ]]; then
-    rm "$CLIENT_CONFIG"
-    sed -i "/$CLIENT_NAME/d" "$PORTS_FILE"
-    echo "Client $CLIENT_NAME removed from $CLIENT_CONFIG."
-  else
-    echo "Client configuration not found."
-  fi
-
-  if [[ -f "$CLIENT_FILE" ]]; then
-    rm "$CLIENT_FILE"
-    echo "Client file $CLIENT_FILE removed."
-  else
-    echo "Client file not found."
-  fi
-}
-
-# Add ports to ports.txt
-edit_ports_txt() {
-  echo "Editing $PORTS_FILE..."
-  read -p "Enter the IP: " IP
-  read -p "TCP ports (comma-separated): " TCP_PORTS
-  read -p "UDP ports (comma-separated): " UDP_PORTS
-
-  echo "IP=$IP TCP=$TCP_PORTS UDP=$UDP_PORTS" >> "$PORTS_FILE"
-  echo "Ports added to $PORTS_FILE."
-}
-
-# Add ports to local_ports.txt
-edit_local_ports_txt() {
-  echo "Editing $LOCAL_PORTS_FILE..."
-  read -p "TCP ports (comma-separated): " TCP_PORTS
-  read -p "UDP ports (comma-separated): " UDP_PORTS
-
-  echo "TCP=$TCP_PORTS UDP=$UDP_PORTS" >> "$LOCAL_PORTS_FILE"
-  echo "Ports added to $LOCAL_PORTS_FILE."
-}
-
-# Display connected clients
-show_connected_clients() {
-  echo "Fetching connected clients..."
-  status_file="/etc/openvpn/openvpn-status.log"
-
-  if [[ -f "$status_file" ]]; then
-    echo -e "\\n--- Connected Clients ---"
-    grep "10.8." "$status_file" | awk '{print "Client IP: " $1 ", Bytes Received: " $3 ", Bytes Sent: " $4}'
-  else
-    echo "Status file not found. Ensure OpenVPN status logging is enabled."
-  fi
-}
-
-# Restart firewall.sh service
-restart_firewall() {
-  echo "Restarting firewall.sh service..."
-  systemctl restart "$FIREWALL_SERVICE"
-  echo "firewall.sh service restarted."
+# Restart OpenVPN service
+restart_openvpn() {
+  systemctl restart openvpn-server@server
 }
 
 # Menu
 menu() {
   while true; do
-    echo -e "\\n\\033[44m--- OpenVPN Management Menu ---\\033[0m"
+    echo -e "\\n--- OpenVPN Management Menu ---"
     echo "1) Add a client"
-    echo "2) Remove a client"
-    echo "3) Edit $PORTS_FILE"
-    echo "4) Edit $LOCAL_PORTS_FILE"
-    echo "5) Restart firewall"
-    echo "6) Show connected clients"
-    echo "7) Exit"
+    echo "2) Restart OpenVPN"
+    echo "3) Exit"
     read -p "Choose an option: " OPTION
 
     case $OPTION in
@@ -242,21 +177,9 @@ menu() {
         add_client
         ;;
       2)
-        remove_client
+        restart_openvpn
         ;;
       3)
-        edit_ports_txt
-        ;;
-      4)
-        edit_local_ports_txt
-        ;;
-      5)
-        restart_firewall
-        ;;
-      6)
-        show_connected clients
-        ;;
-      7)
         exit 0
         ;;
       *)
