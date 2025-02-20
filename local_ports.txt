@@ -1,3 +1,0 @@
-# local_ports.txt
-TCP=22
-UDP=1194
